@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>粒子星河</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: #050510; }
+  canvas { display: block; touch-action: none; }
+  .hud {
+    position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+    color: rgba(255,255,255,.55); font: 12px/1.6 -apple-system, "PingFang SC", sans-serif;
+    text-align: center; pointer-events: none; letter-spacing: .1em;
+    text-shadow: 0 0 12px rgba(0,0,0,.8); white-space: nowrap;
+  }
+  .hud b { color: rgba(255,255,255,.9); font-weight: 500; }
+  .mode-btn {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 8px;
+  }
+  .mode-btn button {
+    background: rgba(255,255,255,.08); color: rgba(255,255,255,.75);
+    border: 1px solid rgba(255,255,255,.15); border-radius: 999px;
+    padding: 8px 16px; font: 13px -apple-system, "PingFang SC", sans-serif;
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    transition: all .25s;
+  }
+  .mode-btn button.active {
+    background: rgba(120,180,255,.25); color: #fff;
+    border-color: rgba(140,200,255,.5); box-shadow: 0 0 20px rgba(100,160,255,.3);
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><b>粒子星河</b> · 手指按住屏幕拖动</div>
+<div class="mode-btn">
+  <button data-mode="attract" class="active">星河</button>
+  <button data-mode="repel">斥力</button>
+  <button data-mode="vortex">漩涡</button>
+</div>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H, dpr;
+
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+resize();
+addEventListener('resize', resize);
+
+const N = Math.min(900, Math.floor((window.innerWidth * window.innerHeight) / 900));
+const parts = [];
+for (let i = 0; i < N; i++) {
+  parts.push({
+    x: Math.random() * W, y: Math.random() * H,
+    vx: 0, vy: 0,
+    hue: Math.random() * 360,
+    size: Math.random() * 1.8 + 0.6
+  });
+}
+
+let mode = 'attract';
+let pointer = { x: W/2, y: H/2, down: false };
+
+function onDown(e) {
+  const t = e.touches ? e.touches[0] : e;
+  pointer.down = true; pointer.x = t.clientX; pointer.y = t.clientY;
+  // 点击处小爆发
+  for (const p of parts) {
+    const dx = p.x - pointer.x, dy = p.y - pointer.y;
+    const d = Math.hypot(dx, dy) || 1;
+    if (d < 120) { const f = (120 - d) / 120 * 6; p.vx += dx/d*f; p.vy += dy/d*f; }
+  }
+}
+function onMove(e) {
+  const t = e.touches ? e.touches[0] : e;
+  pointer.x = t.clientX; pointer.y = t.clientY;
+  if (e.touches) pointer.down = true;
+}
+function onUp() { pointer.down = false; }
+
+canvas.addEventListener('mousedown', onDown);
+canvas.addEventListener('mousemove', onMove);
+addEventListener('mouseup', onUp);
+canvas.addEventListener('touchstart', e => { e.preventDefault(); onDown(e); }, { passive: false });
+canvas.addEventListener('touchmove', e => { e.preventDefault(); onMove(e); }, { passive: false });
+canvas.addEventListener('touchend', onUp);
+
+document.querySelectorAll('.mode-btn button').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.mode-btn button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    mode = b.dataset.mode;
+  });
+});
+
+let time = 0;
+function tick() {
+  time += 0.005;
+  ctx.fillStyle = 'rgba(5,5,16,0.18)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.globalCompositeOperation = 'lighter';
+
+  // 没有交互时指针缓慢漂移，保持画面有生命感
+  const px = pointer.down ? pointer.x : W/2 + Math.cos(time*1.3) * W*0.28;
+  const py = pointer.down ? pointer.y : H/2 + Math.sin(time*1.7) * H*0.28;
+
+  for (const p of parts) {
+    let dx = px - p.x, dy = py - p.y;
+    let d = Math.hypot(dx, dy) || 1;
+
+    if (mode === 'attract') {
+      const f = 28 / d;
+      p.vx += dx/d * f; p.vy += dy/d * f;
+    } else if (mode === 'repel') {
+      const f = 320 / (d*d) * 8;
+      p.vx -= dx/d * f; p.vy -= dy/d * f;
+    } else { // vortex: 切向 + 轻微向心
+      const f = 40 / d;
+      p.vx += (-dy/d) * f + (dx/d) * f * 0.25;
+      p.vy += ( dx/d) * f + (dy/d) * f * 0.25;
+    }
+
+    p.vx *= 0.96; p.vy *= 0.96;
+    p.x += p.vx; p.y += p.vy;
+
+    // 环绕边界
+    if (p.x < -20) p.x = W+20; if (p.x > W+20) p.x = -20;
+    if (p.y < -20) p.y = H+20; if (p.y > H+20) p.y = -20;
+
+    p.hue = (p.hue + 0.3) % 360;
+    const speed = Math.hypot(p.vx, p.vy);
+    const alpha = Math.min(0.9, 0.15 + speed * 0.06);
+
+    ctx.fillStyle = `hsla(${p.hue}, 85%, 62%, ${alpha})`;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  requestAnimationFrame(tick);
+}
+tick();
+</script>
+</body>
+</html>
